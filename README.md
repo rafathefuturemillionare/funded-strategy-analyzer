@@ -1,27 +1,32 @@
-# Funded Strategy Analyzer V2
+# Funded Strategy Analyzer V3
 
-A Streamlit dashboard for checking TradingView strategy CSV exports against funded-account rules.
+A simple Streamlit website for checking TradingView strategy CSVs against funded-account rules.
 
-## V2 Fixes
+## What V3 adds
 
-- Fixes TradingView double-counting by keeping **Exit** rows only and ignoring **Entry** rows.
-- Shows original CSV rows vs rows used as closed trades.
-- Shows backtest start/end dates, calendar days, and trades per active day.
-- Shows raw net P&L and cost-adjusted net profit separately.
-- Adds a 50% consistency-rule checker.
+- Clean tabs so the site does not feel cluttered
+- Rolling 30-day evaluation simulator
+- Personal safety drawdown goal
+- Version comparison table
+- Download buttons for cleaned trades, rolling results, and comparisons
 
-## Run
+## Run locally
 
 ```bash
 pip install -r requirements.txt
 python -m streamlit run app.py
 ```
 
-## Important
+## Deploy on Streamlit Cloud
 
-If you want the dashboard to match TradingView exactly, set:
+Upload/replace these files in your GitHub repo:
 
-- Extra commission per closed trade = 0
-- Extra slippage estimate per closed trade = 0
+- `app.py`
+- `requirements.txt`
+- `README.md`
 
-If you want a more conservative test, leave realistic extra costs on.
+Then redeploy or reboot the Streamlit app.
+
+## Notes
+
+The rolling simulator uses daily closed P&L from the CSV. It is a decision tool, not a guarantee of live performance. TradingView may show slightly different max drawdown because it can use intrabar/open-equity drawdown.
