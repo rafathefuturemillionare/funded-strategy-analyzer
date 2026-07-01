@@ -6,7 +6,196 @@ import pandas as pd
 import streamlit as st
 
 
-st.set_page_config(page_title="Funded Strategy Analyzer V3", layout="wide")
+st.set_page_config(page_title="Funded Strategy Analyzer V4", layout="wide", initial_sidebar_state="expanded")
+
+st.markdown("""
+<style>
+    :root {
+        --bg: #071018;
+        --panel: rgba(15, 25, 38, 0.78);
+        --panel-strong: rgba(18, 31, 48, 0.94);
+        --border: rgba(148, 163, 184, 0.18);
+        --text: #eaf2ff;
+        --muted: #8ea3b8;
+        --blue: #38bdf8;
+        --green: #22c55e;
+        --yellow: #f59e0b;
+        --red: #ef4444;
+        --purple: #8b5cf6;
+    }
+
+    .stApp {
+        background:
+            radial-gradient(circle at top left, rgba(56, 189, 248, 0.16), transparent 34rem),
+            radial-gradient(circle at top right, rgba(139, 92, 246, 0.14), transparent 32rem),
+            linear-gradient(135deg, #060b12 0%, #0a111d 48%, #071018 100%);
+        color: var(--text);
+    }
+
+    .block-container {
+        padding-top: 1.6rem;
+        padding-bottom: 3rem;
+        max-width: 1500px;
+    }
+
+    section[data-testid="stSidebar"] {
+        background: rgba(8, 14, 23, 0.92);
+        border-right: 1px solid var(--border);
+    }
+
+    section[data-testid="stSidebar"] h1,
+    section[data-testid="stSidebar"] h2,
+    section[data-testid="stSidebar"] h3 {
+        letter-spacing: -0.02em;
+    }
+
+    .hero {
+        padding: 1.45rem 1.6rem;
+        border: 1px solid var(--border);
+        border-radius: 26px;
+        background: linear-gradient(135deg, rgba(15, 23, 42, 0.94), rgba(14, 37, 55, 0.78));
+        box-shadow: 0 24px 80px rgba(0,0,0,0.28);
+        margin-bottom: 1.1rem;
+    }
+
+    .hero-kicker {
+        color: var(--blue);
+        font-size: 0.82rem;
+        font-weight: 800;
+        letter-spacing: 0.11em;
+        text-transform: uppercase;
+        margin-bottom: 0.35rem;
+    }
+
+    .hero-title {
+        font-size: clamp(2rem, 4vw, 3.7rem);
+        font-weight: 900;
+        line-height: 0.98;
+        letter-spacing: -0.06em;
+        margin-bottom: 0.7rem;
+    }
+
+    .hero-subtitle {
+        color: var(--muted);
+        font-size: 1.02rem;
+        max-width: 860px;
+        line-height: 1.55;
+    }
+
+    .hero-chips {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 0.55rem;
+        margin-top: 1rem;
+    }
+
+    .chip {
+        border: 1px solid rgba(56, 189, 248, 0.22);
+        background: rgba(56, 189, 248, 0.08);
+        color: #c9f1ff;
+        border-radius: 999px;
+        padding: 0.42rem 0.72rem;
+        font-size: 0.82rem;
+        font-weight: 700;
+    }
+
+    .mini-card {
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 1rem 1.05rem;
+        background: rgba(15, 23, 42, 0.70);
+        min-height: 104px;
+    }
+
+    .mini-title {
+        font-weight: 800;
+        font-size: 1rem;
+        margin-bottom: 0.35rem;
+    }
+
+    .mini-text {
+        color: var(--muted);
+        font-size: 0.92rem;
+        line-height: 1.45;
+    }
+
+    .verdict-card {
+        border-radius: 22px;
+        padding: 1rem 1.15rem;
+        border: 1px solid var(--border);
+        margin: 1rem 0 1rem;
+        font-weight: 800;
+        font-size: 1rem;
+    }
+    .verdict-pass { background: rgba(34,197,94,0.10); border-color: rgba(34,197,94,0.32); color: #bbf7d0; }
+    .verdict-warn { background: rgba(245,158,11,0.10); border-color: rgba(245,158,11,0.32); color: #fde68a; }
+    .verdict-fail { background: rgba(239,68,68,0.10); border-color: rgba(239,68,68,0.32); color: #fecaca; }
+
+    div[data-testid="stMetric"] {
+        background: rgba(15, 23, 42, 0.70);
+        border: 1px solid var(--border);
+        border-radius: 20px;
+        padding: 1rem 1rem 0.85rem 1rem;
+        box-shadow: 0 14px 34px rgba(0,0,0,0.12);
+    }
+    div[data-testid="stMetricLabel"] p {
+        color: var(--muted) !important;
+        font-weight: 800;
+        font-size: 0.78rem;
+        letter-spacing: 0.02em;
+    }
+    div[data-testid="stMetricValue"] {
+        color: #f8fbff;
+        font-weight: 900;
+        font-size: 1.65rem !important;
+        letter-spacing: -0.04em;
+    }
+    div[data-testid="stMetricDelta"] {
+        font-weight: 800;
+    }
+
+    .stTabs [data-baseweb="tab-list"] {
+        gap: 0.5rem;
+        background: rgba(15, 23, 42, 0.54);
+        border: 1px solid var(--border);
+        border-radius: 18px;
+        padding: 0.35rem;
+    }
+    .stTabs [data-baseweb="tab"] {
+        border-radius: 14px;
+        padding: 0.7rem 1rem;
+        font-weight: 800;
+    }
+    .stTabs [aria-selected="true"] {
+        background: rgba(56, 189, 248, 0.13);
+        color: #e0f7ff;
+    }
+
+    div[data-testid="stFileUploader"] {
+        background: rgba(15, 23, 42, 0.64);
+        border: 1px solid var(--border);
+        border-radius: 22px;
+        padding: 1rem;
+    }
+    div[data-testid="stDataFrame"] {
+        border: 1px solid var(--border);
+        border-radius: 16px;
+        overflow: hidden;
+    }
+    .stButton button, .stDownloadButton button {
+        border-radius: 14px !important;
+        border: 1px solid rgba(56, 189, 248, 0.25) !important;
+        background: rgba(56, 189, 248, 0.10) !important;
+        color: #dff7ff !important;
+        font-weight: 800 !important;
+    }
+    .stButton button:hover, .stDownloadButton button:hover {
+        border-color: rgba(56, 189, 248, 0.55) !important;
+        background: rgba(56, 189, 248, 0.18) !important;
+    }
+    hr { border-color: var(--border); }
+</style>
+""", unsafe_allow_html=True)
 
 
 # -----------------------------
@@ -315,16 +504,27 @@ def style_status(status: str):
 # App UI
 # -----------------------------
 
-st.title("Funded Strategy Analyzer V3")
-st.caption("Simple funded-eval checker with rolling 30-day testing and a clean version comparison table.")
+st.markdown("""
+<div class="hero">
+  <div class="hero-kicker">TradingView CSV → funded evaluation answer</div>
+  <div class="hero-title">Funded Strategy Analyzer V4</div>
+  <div class="hero-subtitle">Upload a strategy trade list and instantly check profit target, drawdown, consistency, and rolling 30-day pass rate. Cleaner layout, same simple workflow.</div>
+  <div class="hero-chips">
+    <span class="chip">Rolling 30D simulator</span>
+    <span class="chip">Drawdown safety goal</span>
+    <span class="chip">Version comparison</span>
+    <span class="chip">TradingView exit-row fix</span>
+  </div>
+</div>
+""", unsafe_allow_html=True)
 
 with st.sidebar:
-    st.header("Funded Rules")
+    st.markdown("### Funded Rules")
     profit_target = st.number_input("Profit target", value=9000.0, step=100.0)
     max_total_drawdown_limit = st.number_input("Max total drawdown allowed", value=4500.0, step=50.0)
     max_daily_loss_limit = st.number_input("Max daily loss allowed", value=999999.0, step=50.0)
 
-    st.header("Safety Goal")
+    st.markdown("### Safety Goal")
     personal_safe_dd = st.number_input(
         "Personal max drawdown goal",
         value=3500.0,
@@ -332,11 +532,11 @@ with st.sidebar:
         help="This is stricter than the official rule. It helps show if a strategy has a real cushion.",
     )
 
-    st.header("Rolling Test")
+    st.markdown("### Rolling Test")
     rolling_window_days = st.number_input("Evaluation window days", value=30, min_value=5, max_value=120, step=1)
     stop_when_target_hit = st.checkbox("Assume you stop trading after target is hit", value=True)
 
-    st.header("Consistency Rule")
+    st.markdown("### Consistency Rule")
     use_consistency_rule = st.checkbox("Use consistency rule", value=True)
     consistency_percent = st.number_input(
         "Max % of profit from biggest winning day",
@@ -346,18 +546,24 @@ with st.sidebar:
         step=1.0,
     )
 
-    st.header("Realism Adjustments")
+    st.markdown("### Realism Adjustments")
     commission_per_trade = st.number_input("Extra commission per closed trade", value=1.50, step=0.25)
     slippage_per_trade = st.number_input("Extra slippage estimate per closed trade", value=2.00, step=0.25)
     st.caption("Set both to 0 if you want to match TradingView exactly.")
 
-    st.header("Optional")
+    st.markdown("### Optional")
     starting_balance = st.number_input("Starting balance", value=150000.0, step=1000.0)
 
-uploaded_file = st.file_uploader("Upload your TradingView CSV", type=["csv"])
+uploaded_file = st.file_uploader("Upload your TradingView CSV", type=["csv"], label_visibility="visible")
 
 if uploaded_file is None:
-    st.info("Upload a TradingView Strategy Tester List of Trades CSV to begin.")
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        st.markdown('<div class="mini-card"><div class="mini-title">1. Export trades</div><div class="mini-text">TradingView Strategy Tester → List of Trades → export CSV.</div></div>', unsafe_allow_html=True)
+    with c2:
+        st.markdown('<div class="mini-card"><div class="mini-title">2. Upload here</div><div class="mini-text">The app removes TradingView entry-row double counting automatically.</div></div>', unsafe_allow_html=True)
+    with c3:
+        st.markdown('<div class="mini-card"><div class="mini-title">3. Pick the best version</div><div class="mini-text">Check rolling pass rate, drawdown cushion, and save versions to compare.</div></div>', unsafe_allow_html=True)
     st.stop()
 
 try:
@@ -538,14 +744,14 @@ score, grade = calc_grade(metrics, passes_rules, rolling_pass_rate, passes_safe_
 # -----------------------------
 
 if passes_rules and passes_safe_dd:
-    st.success("Verdict: passes the entered rules and stays under your personal drawdown goal.")
+    st.markdown('<div class="verdict-card verdict-pass">✅ Verdict: passes the entered rules and stays under your personal drawdown goal.</div>', unsafe_allow_html=True)
 elif passes_rules:
-    st.warning("Verdict: passes the official rules, but drawdown is above your personal safety goal.")
+    st.markdown('<div class="verdict-card verdict-warn">⚠️ Verdict: passes the official rules, but drawdown is above your personal safety goal.</div>', unsafe_allow_html=True)
 else:
-    st.error("Verdict: fails at least one funded-rule check.")
+    st.markdown('<div class="verdict-card verdict-fail">❌ Verdict: fails at least one funded-rule check.</div>', unsafe_allow_html=True)
 
 # Compact top metrics
-st.subheader("Overview")
+st.subheader("Quick Overview")
 o1, o2, o3, o4 = st.columns(4)
 o1.metric("Score", f"{score}/100", grade)
 o2.metric("Funded Check", "PASS" if passes_rules else "FAIL")
@@ -561,7 +767,7 @@ o8.metric("Profit / Month", format_money(profit_per_month) if profit_per_month i
 st.divider()
 
 tab_overview, tab_rolling, tab_compare, tab_charts, tab_data = st.tabs(
-    ["Rules", "Rolling 30-Day", "Compare", "Charts", "Data"]
+    ["✅ Rules", "📆 Rolling 30-Day", "🧪 Compare", "📈 Charts", "📄 Data"]
 )
 
 with tab_overview:
@@ -658,7 +864,7 @@ with tab_rolling:
 
 with tab_compare:
     st.subheader("Version Comparison")
-    st.caption("Use this after testing different settings. It only saves during this browser session.")
+    st.caption("Test a setting, name it, save it here, then upload another CSV. It only saves during this browser session.")
 
     if "comparison_runs" not in st.session_state:
         st.session_state.comparison_runs = []
