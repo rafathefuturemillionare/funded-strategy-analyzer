@@ -1,33 +1,33 @@
-# Funded Strategy Analyzer V4
+# Funded Strategy Analyzer V5
 
-A cleaner Streamlit dashboard for checking whether a TradingView strategy trade-list CSV could pass a funded evaluation.
+A Streamlit website that analyzes TradingView strategy exports for funded-account rules.
 
-## Features
+## V5 additions
 
-- TradingView CSV upload
-- Exit-row filter to avoid double-counting TradingView entry/exit rows
-- Funded rule check
-- Personal drawdown safety goal
-- Consistency rule check
-- Rolling 30-day evaluation simulator
-- Version comparison table
-- Charts and downloadable CSV results
-- Cleaner V4 interface
+- Performance Analyzer tab
+- Best/worst hours
+- Weekday performance
+- Long vs short breakdown
+- P&L heatmap by weekday/hour
+- Suggested filters/settings to test next
+- Downloadable analyzer suggestions
 
 ## Run locally
 
 ```bash
 pip install -r requirements.txt
-python -m streamlit run app.py
+streamlit run app.py
 ```
 
 ## Deploy
 
-Upload these files to your GitHub repo:
+Upload these files to GitHub and reboot the Streamlit app:
 
-- `app.py`
-- `requirements.txt`
-- `README.md`
-- `sample_trades.csv`
+- app.py
+- requirements.txt
+- README.md
+- sample_trades.csv
 
-Then reboot/redeploy the Streamlit app.
+## Notes
+
+This is for research/backtesting only. It does not guarantee live results.

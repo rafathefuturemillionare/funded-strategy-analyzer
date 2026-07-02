@@ -6,7 +6,7 @@ import pandas as pd
 import streamlit as st
 
 
-st.set_page_config(page_title="Funded Strategy Analyzer V4", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(page_title="Funded Strategy Analyzer V5", layout="wide", initial_sidebar_state="expanded")
 
 st.markdown("""
 <style>
@@ -500,6 +500,203 @@ def style_status(status: str):
     return status
 
 
+
+
+def side_bucket(value: str) -> str:
+    text = normalize_name(value)
+    if any(word in text for word in ["short", "sell"]):
+        return "Short"
+    if any(word in text for word in ["long", "buy"]):
+        return "Long"
+    return "Unknown"
+
+
+def calc_group_metrics(df: pd.DataFrame, group_col: str, min_trades: int = 1):
+    """Return performance metrics by group for the Analyzer tab."""
+    if df.empty or group_col not in df.columns:
+        return pd.DataFrame()
+
+    rows = []
+    for group, g in df.groupby(group_col, dropna=False):
+        p = g["Adjusted Profit"].astype(float)
+        if len(p) < min_trades:
+            continue
+        gp = float(p[p > 0].sum())
+        gl = float(p[p < 0].sum())
+        pf = safe_divide(gp, abs(gl))
+        group_dd, _ = drawdown_from_cumulative(p.cumsum())
+        rows.append({
+            "Group": group,
+            "Trades": int(len(p)),
+            "Net P&L": float(p.sum()),
+            "Profit Factor": pf,
+            "Win Rate %": float((p > 0).mean() * 100),
+            "Avg Trade": float(p.mean()),
+            "Max Drawdown": float(group_dd),
+            "Biggest Win": float(p.max()),
+            "Biggest Loss": float(p.min()),
+        })
+
+    out = pd.DataFrame(rows)
+    if out.empty:
+        return out
+    out["Quality Score"] = (
+        out["Net P&L"].rank(pct=True) * 35
+        + out["Avg Trade"].rank(pct=True) * 25
+        + out["Profit Factor"].replace(np.inf, out["Profit Factor"].replace(np.inf, np.nan).max() if np.isfinite(out["Profit Factor"].replace(np.inf, np.nan).max()) else 5).rank(pct=True) * 20
+        + out["Win Rate %"].rank(pct=True) * 10
+        + (1 - out["Max Drawdown"].rank(pct=True)) * 10
+    )
+    return out.sort_values("Quality Score", ascending=False).reset_index(drop=True)
+
+
+def describe_group_value(group):
+    if pd.isna(group):
+        return "Unknown"
+    try:
+        if isinstance(group, (int, np.integer)) or (isinstance(group, float) and group.is_integer()):
+            return f"{int(group):02d}:00"
+    except Exception:
+        pass
+    return str(group)
+
+
+def add_recommendation(recs, title, reason, test):
+    recs.append({"Suggestion": title, "Why": reason, "Test This Next": test})
+
+
+def build_strategy_recommendations(
+    trades_df: pd.DataFrame,
+    hourly_df: pd.DataFrame,
+    weekday_df: pd.DataFrame,
+    side_df: pd.DataFrame,
+    daily_series: pd.Series,
+    min_trades: int,
+    profit_target: float,
+    personal_safe_dd: float,
+    rolling_summary: dict,
+):
+    recs = []
+
+    if not hourly_df.empty:
+        valid_hours = hourly_df[hourly_df["Trades"] >= min_trades].copy()
+        if not valid_hours.empty:
+            losing_hours = valid_hours[valid_hours["Net P&L"] < 0].sort_values("Net P&L")
+            if not losing_hours.empty:
+                worst = losing_hours.iloc[0]
+                add_recommendation(
+                    recs,
+                    f"Avoid or filter {describe_group_value(worst['Group'])}",
+                    f"That hour lost {format_money(worst['Net P&L'])} across {int(worst['Trades'])} trades.",
+                    "Backtest the same settings with that hour/session blocked out.",
+                )
+
+            weak_hours = valid_hours[(valid_hours["Avg Trade"] < 0) | (valid_hours["Profit Factor"] < 1)].sort_values("Avg Trade")
+            if len(weak_hours) >= 2:
+                hours = ", ".join(describe_group_value(x) for x in weak_hours.head(3)["Group"].tolist())
+                add_recommendation(
+                    recs,
+                    "Create a no-trade time filter",
+                    f"These hours have weak expectancy: {hours}.",
+                    "Test a version that only trades the strongest hours and skips the weakest hours.",
+                )
+
+            strong_hours = valid_hours[(valid_hours["Net P&L"] > 0) & (valid_hours["Profit Factor"] >= 1.5)].sort_values("Quality Score", ascending=False)
+            if not strong_hours.empty:
+                hours = ", ".join(describe_group_value(x) for x in strong_hours.head(4)["Group"].tolist())
+                add_recommendation(
+                    recs,
+                    "Focus on strongest hours",
+                    f"Best hour group candidates: {hours}.",
+                    "Test a session-only version using just those hours.",
+                )
+
+    if not weekday_df.empty:
+        valid_days = weekday_df[weekday_df["Trades"] >= min_trades].copy()
+        losing_days = valid_days[valid_days["Net P&L"] < 0].sort_values("Net P&L") if not valid_days.empty else pd.DataFrame()
+        if not losing_days.empty:
+            worst_day = losing_days.iloc[0]
+            add_recommendation(
+                recs,
+                f"Watch {worst_day['Group']} trades",
+                f"{worst_day['Group']} is the weakest weekday in this file.",
+                "Test a version that skips that weekday, or reduces size on that weekday.",
+            )
+
+    if not side_df.empty and len(side_df) >= 2:
+        valid_side = side_df[(side_df["Group"] != "Unknown") & (side_df["Trades"] >= min_trades)].copy()
+        losing_sides = valid_side[valid_side["Net P&L"] < 0].sort_values("Net P&L")
+        if not losing_sides.empty:
+            side = losing_sides.iloc[0]
+            add_recommendation(
+                recs,
+                f"Test {side['Group']}-side filter",
+                f"{side['Group']} trades lost {format_money(side['Net P&L'])} in this export.",
+                f"Backtest a version with {side['Group'].lower()} trades disabled.",
+            )
+        elif len(valid_side) >= 2:
+            best = valid_side.sort_values("Quality Score", ascending=False).iloc[0]
+            worst = valid_side.sort_values("Quality Score", ascending=True).iloc[0]
+            if best["Quality Score"] - worst["Quality Score"] > 25:
+                add_recommendation(
+                    recs,
+                    f"Bias toward {best['Group']} setups",
+                    f"{best['Group']} has stronger quality than {worst['Group']} in this sample.",
+                    f"Test lower size or stricter entries for {worst['Group']} trades.",
+                )
+
+    if len(daily_series):
+        worst_day_loss = abs(float(daily_series.min()))
+        if worst_day_loss > personal_safe_dd * 0.35:
+            suggested_stop = max(250, round((personal_safe_dd * 0.25) / 50) * 50)
+            add_recommendation(
+                recs,
+                "Add a personal daily stop",
+                f"Worst daily loss was {format_money(worst_day_loss)}, which uses a lot of your drawdown cushion.",
+                f"Test stopping for the day after about {format_money(suggested_stop)} in losses.",
+            )
+
+    if len(trades_df):
+        p = trades_df["Adjusted Profit"].astype(float)
+        avg_win_val = p[p > 0].mean() if (p > 0).any() else np.nan
+        avg_loss_val = p[p < 0].mean() if (p < 0).any() else np.nan
+        loss_streak_val = longest_losing_streak(p)
+        if np.isfinite(avg_win_val) and np.isfinite(avg_loss_val) and abs(avg_loss_val) > avg_win_val * 1.25:
+            add_recommendation(
+                recs,
+                "Improve loss size vs win size",
+                f"Average loss is {format_money(avg_loss_val)} while average win is {format_money(avg_win_val)}.",
+                "Test a slightly smaller max loss or a quicker break-even rule after price moves in your favor.",
+            )
+        if loss_streak_val >= 4:
+            add_recommendation(
+                recs,
+                "Add a losing-streak pause",
+                f"Longest losing streak was {loss_streak_val} trades.",
+                "Test pausing after 2 or 3 losses in one day instead of continuing automatically.",
+            )
+
+    if rolling_summary:
+        pass_rate = rolling_summary.get("pass_rate", np.nan)
+        if np.isfinite(pass_rate) and pass_rate < 60:
+            add_recommendation(
+                recs,
+                "Improve rolling 30-day reliability",
+                f"Rolling pass rate is only {pass_rate:.1f}%.",
+                "Prioritize filters that remove losing windows, not just settings that increase total profit.",
+            )
+
+    if not recs:
+        add_recommendation(
+            recs,
+            "No obvious single weak spot found",
+            "This export does not show one clear hour, weekday, or side causing the damage.",
+            "Test realistic slippage/commission, longer date ranges, and compare each month separately.",
+        )
+
+    return pd.DataFrame(recs)
+
+
 # -----------------------------
 # App UI
 # -----------------------------
@@ -507,13 +704,14 @@ def style_status(status: str):
 st.markdown("""
 <div class="hero">
   <div class="hero-kicker">TradingView CSV → funded evaluation answer</div>
-  <div class="hero-title">Funded Strategy Analyzer V4</div>
-  <div class="hero-subtitle">Upload a strategy trade list and instantly check profit target, drawdown, consistency, and rolling 30-day pass rate. Cleaner layout, same simple workflow.</div>
+  <div class="hero-title">Funded Strategy Analyzer V5</div>
+  <div class="hero-subtitle">Upload a strategy trade list and instantly check profit target, drawdown, consistency, and rolling 30-day pass rate. Adds a clean performance analyzer that shows best/worst conditions and what to test next.</div>
   <div class="hero-chips">
     <span class="chip">Rolling 30D simulator</span>
     <span class="chip">Drawdown safety goal</span>
     <span class="chip">Version comparison</span>
-    <span class="chip">TradingView exit-row fix</span>
+    <span class="chip">Best/worst analyzer</span>
+    <span class="chip">Improvement suggestions</span>
   </div>
 </div>
 """, unsafe_allow_html=True)
@@ -766,8 +964,8 @@ o8.metric("Profit / Month", format_money(profit_per_month) if profit_per_month i
 
 st.divider()
 
-tab_overview, tab_rolling, tab_compare, tab_charts, tab_data = st.tabs(
-    ["✅ Rules", "📆 Rolling 30-Day", "🧪 Compare", "📈 Charts", "📄 Data"]
+tab_overview, tab_rolling, tab_analyzer, tab_compare, tab_charts, tab_data = st.tabs(
+    ["✅ Rules", "📆 Rolling 30-Day", "🔎 Analyzer", "🧪 Compare", "📈 Charts", "📄 Data"]
 )
 
 with tab_overview:
@@ -862,6 +1060,149 @@ with tab_rolling:
             },
         )
 
+
+with tab_analyzer:
+    st.subheader("Performance Analyzer")
+    st.caption("Find when the strategy performs best, when it performs worst, and what settings/filters are worth testing next.")
+
+    if not trades["Datetime"].notna().any():
+        st.info("Analyzer needs a valid date/time column. Pick the correct date/time column in CSV settings.")
+    else:
+        analyzer_min_trades = st.number_input(
+            "Minimum trades needed for a time/side group",
+            min_value=1,
+            max_value=100,
+            value=5,
+            step=1,
+            help="This prevents one lucky trade from being treated as a strong pattern.",
+        )
+
+        analyzer_trades = trades.copy()
+        analyzer_trades["Weekday"] = analyzer_trades["Datetime"].dt.day_name()
+        analyzer_trades["Hour"] = analyzer_trades["Datetime"].dt.hour
+        analyzer_trades["Side Bucket"] = analyzer_trades["Side"].apply(side_bucket)
+
+        hour_metrics = calc_group_metrics(analyzer_trades, "Hour", min_trades=int(analyzer_min_trades))
+        weekday_metrics = calc_group_metrics(analyzer_trades, "Weekday", min_trades=int(analyzer_min_trades))
+        side_metrics = calc_group_metrics(analyzer_trades, "Side Bucket", min_trades=int(analyzer_min_trades))
+
+        recs_df = build_strategy_recommendations(
+            trades_df=analyzer_trades,
+            hourly_df=hour_metrics,
+            weekday_df=weekday_metrics,
+            side_df=side_metrics,
+            daily_series=daily_pnl,
+            min_trades=int(analyzer_min_trades),
+            profit_target=profit_target,
+            personal_safe_dd=personal_safe_dd,
+            rolling_summary=rolling_summary,
+        )
+
+        st.markdown("### What to test next")
+        st.dataframe(recs_df, use_container_width=True, hide_index=True)
+
+        st.markdown("### Best / Worst Timing")
+        a1, a2 = st.columns(2)
+        with a1:
+            st.markdown("#### Best hours")
+            if hour_metrics.empty:
+                st.info("Not enough trades per hour yet.")
+            else:
+                best_hours = hour_metrics.sort_values("Quality Score", ascending=False).head(5).copy()
+                best_hours["Hour"] = best_hours["Group"].apply(describe_group_value)
+                st.dataframe(
+                    best_hours[["Hour", "Trades", "Net P&L", "Profit Factor", "Win Rate %", "Avg Trade", "Max Drawdown"]],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Net P&L": st.column_config.NumberColumn(format="$%.2f"),
+                        "Profit Factor": st.column_config.NumberColumn(format="%.2f"),
+                        "Win Rate %": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Avg Trade": st.column_config.NumberColumn(format="$%.2f"),
+                        "Max Drawdown": st.column_config.NumberColumn(format="$%.2f"),
+                    },
+                )
+        with a2:
+            st.markdown("#### Worst hours")
+            if hour_metrics.empty:
+                st.info("Not enough trades per hour yet.")
+            else:
+                worst_hours = hour_metrics.sort_values(["Net P&L", "Avg Trade"], ascending=True).head(5).copy()
+                worst_hours["Hour"] = worst_hours["Group"].apply(describe_group_value)
+                st.dataframe(
+                    worst_hours[["Hour", "Trades", "Net P&L", "Profit Factor", "Win Rate %", "Avg Trade", "Max Drawdown"]],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Net P&L": st.column_config.NumberColumn(format="$%.2f"),
+                        "Profit Factor": st.column_config.NumberColumn(format="%.2f"),
+                        "Win Rate %": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Avg Trade": st.column_config.NumberColumn(format="$%.2f"),
+                        "Max Drawdown": st.column_config.NumberColumn(format="$%.2f"),
+                    },
+                )
+
+        st.markdown("### Side and weekday breakdown")
+        b1, b2 = st.columns(2)
+        with b1:
+            st.markdown("#### Long vs Short")
+            if side_metrics.empty:
+                st.info("No long/short data found from the selected type column.")
+            else:
+                st.dataframe(
+                    side_metrics[["Group", "Trades", "Net P&L", "Profit Factor", "Win Rate %", "Avg Trade", "Max Drawdown"]],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Net P&L": st.column_config.NumberColumn(format="$%.2f"),
+                        "Profit Factor": st.column_config.NumberColumn(format="%.2f"),
+                        "Win Rate %": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Avg Trade": st.column_config.NumberColumn(format="$%.2f"),
+                        "Max Drawdown": st.column_config.NumberColumn(format="$%.2f"),
+                    },
+                )
+        with b2:
+            st.markdown("#### Weekday performance")
+            if weekday_metrics.empty:
+                st.info("Not enough trades per weekday yet.")
+            else:
+                weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+                weekday_show = weekday_metrics.copy()
+                weekday_show["_order"] = weekday_show["Group"].apply(lambda x: weekday_order.index(x) if x in weekday_order else 99)
+                weekday_show = weekday_show.sort_values("_order")
+                st.dataframe(
+                    weekday_show[["Group", "Trades", "Net P&L", "Profit Factor", "Win Rate %", "Avg Trade", "Max Drawdown"]],
+                    use_container_width=True,
+                    hide_index=True,
+                    column_config={
+                        "Net P&L": st.column_config.NumberColumn(format="$%.2f"),
+                        "Profit Factor": st.column_config.NumberColumn(format="%.2f"),
+                        "Win Rate %": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Avg Trade": st.column_config.NumberColumn(format="$%.2f"),
+                        "Max Drawdown": st.column_config.NumberColumn(format="$%.2f"),
+                    },
+                )
+
+        st.markdown("### P&L heatmap table")
+        heat = analyzer_trades.pivot_table(
+            index="Weekday",
+            columns="Hour",
+            values="Adjusted Profit",
+            aggfunc="sum",
+            fill_value=0,
+        )
+        weekday_order = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
+        heat = heat.reindex([d for d in weekday_order if d in heat.index])
+        st.dataframe(heat.style.format("${:,.0f}"), use_container_width=True)
+
+        st.download_button(
+            "Download analyzer suggestions",
+            recs_df.to_csv(index=False).encode("utf-8"),
+            "strategy_analyzer_suggestions.csv",
+            "text/csv",
+        )
+
+
 with tab_compare:
     st.subheader("Version Comparison")
     st.caption("Test a setting, name it, save it here, then upload another CSV. It only saves during this browser session.")
@@ -940,7 +1281,7 @@ with tab_data:
     st.dataframe(trades[show_cols], use_container_width=True)
 
     csv_output = trades.to_csv(index=False).encode("utf-8")
-    st.download_button("Download cleaned results", csv_output, "cleaned_strategy_results_v3.csv", "text/csv")
+    st.download_button("Download cleaned results", csv_output, "cleaned_strategy_results_v5.csv", "text/csv")
 
     if not rolling_df.empty:
         st.download_button(
